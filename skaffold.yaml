@@ -1,0 +1,20 @@
+apiVersion: skaffold/v4beta7
+kind: Config
+metadata:
+  name: blueberry-service
+build:
+  artifacts:
+    - image: blueberry-image
+manifests:
+  rawYaml: []
+deploy:
+  cloudrun: {}
+profiles:
+  - name: staging
+    manifests:
+      rawYaml:
+        - lightship-staging.yaml
+  - name: production
+    manifests:
+      rawYaml:
+        - lightship-production.yaml

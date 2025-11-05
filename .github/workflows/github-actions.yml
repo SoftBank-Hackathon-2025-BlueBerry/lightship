@@ -1,0 +1,49 @@
+name: Build, Push, and Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main 
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  REPOSITORY_ID: ${{ vars.ARTIFACT_REPO_ID }}
+  PIPELINE_NAME: ${{ vars.CD_PIPELINE_NAME }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and Push Docker Image
+        run: |-
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} app/
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Create Cloud Deploy Release
+        run: |-
+          RELEASE_NAME="release-$(echo ${{ github.sha }} | cut -c1-8)"
+
+          gcloud deploy releases create ${RELEASE_NAME} \
+            --delivery-pipeline=${{ env.PIPELINE_NAME }} \
+            --region=${{ env.REGION }} \
+            --images=${{ env.IMAGE_NAME }}=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --source=.

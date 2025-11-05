@@ -1,0 +1,13 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: blueberry-web-production
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: "100"
+    spec:
+      serviceAccountName: run-sa@infra-477010.iam.gserviceaccount.com
+      containers:
+        - image: blueberry-image
