@@ -12,9 +12,22 @@ env:
   PIPELINE_NAME: ${{ vars.CD_PIPELINE_NAME }}
   IMAGE_NAME: ${{ vars.IMAGE_NAME }}
 
+  PYTHON_VERSION: 3.11
+  BLACK_VERSION: 24.8.0
+
 jobs:
+  black_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install black==${{ env.BLACK_VERSION }}
+      - run: black --check app/
   deploy:
     runs-on: ubuntu-latest
+    needs: [black_check]
     permissions:
       contents: 'read'
       id-token: 'write'
