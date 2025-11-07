@@ -2,8 +2,7 @@ name: Build, Push, and Deploy to Cloud Run
 
 on:
   push:
-    branches:
-      - main 
+    branches: [ main, test/workflow ]
 
 env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -38,12 +37,43 @@ jobs:
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} app/
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-      - name: Create Cloud Deploy Release
-        run: |-
-          RELEASE_NAME="release-$(echo ${{ github.sha }} | cut -c1-8)"
+      # - name: Create Cloud Deploy Release
+      #   run: |-
+      #     RELEASE_NAME="release-$(echo ${{ github.sha }} | cut -c1-8)"
 
-          gcloud deploy releases create ${RELEASE_NAME} \
-            --delivery-pipeline=${{ env.PIPELINE_NAME }} \
-            --region=${{ env.REGION }} \
-            --images=${{ env.IMAGE_NAME }}=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --source=.
+      #     gcloud deploy releases create ${RELEASE_NAME} \
+      #       --delivery-pipeline=${{ env.PIPELINE_NAME }} \
+      #       --region=${{ env.REGION }} \
+      #       --images=${{ env.IMAGE_NAME }}=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+      #       --source=.
+
+      # 3) n8n 웹훅 호출 (기본 인증 + JSON 페이로드)
+      - name: Notify n8n via webhook
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}   # e.g. https://n8n-XXXX.us-central1.run.app/webhook/<YOUR-WEBHOOK-ID>
+          N8N_USER: ${{ secrets.N8N_USER }}                 # n8n BASIC AUTH 사용자 (N8N_BASIC_AUTH_ACTIVE=true일 때)
+          N8N_PASS: ${{ secrets.N8N_PASS }}                 # n8n BASIC AUTH 비밀번호
+        run: |
+          # 재시도(콜드스타트/일시 오류 대비)
+          payload=$(jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg ref "${{ github.ref }}" \
+            --arg image "${IMAGE_URI}:${GITHUB_SHA}" \
+            --arg image_latest "${IMAGE_URI}:latest" \
+            '{
+              repo: $repo,
+              commit: $sha,
+              ref: $ref,
+              image: $image,
+              image_latest: $image_latest,
+              deployed_at: (now | todate)
+            }')
+          echo "$payload" | jq .
+
+          curl --fail --show-error --silent \
+               --retry 5 --retry-all-errors --retry-delay 2 \
+               -u "${N8N_USER}:${N8N_PASS}" \
+               -H "Content-Type: application/json" \
+               -d "${payload}" \
+               "${N8N_WEBHOOK_URL}"
