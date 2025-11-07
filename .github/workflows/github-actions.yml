@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ vars.GCP_REGION }}
   REPOSITORY_ID: ${{ vars.ARTIFACT_REPO_ID }}
   PIPELINE_NAME: ${{ vars.CD_PIPELINE_NAME }}
@@ -56,10 +56,25 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and Push Docker Image
-        run: |-
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} app/
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+          IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+
+          docker build -t "${IMAGE_URI}:${GITHUB_SHA}" app/
+          docker push "${IMAGE_URI}:${GITHUB_SHA}"
+
+          # 선택: latest도 함께 갱신
+          docker tag "${IMAGE_URI}:${GITHUB_SHA}" "${IMAGE_URI}:latest"
+          docker push "${IMAGE_URI}:latest"
+
+          # 선택: digest 추출(추적용)
+          DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}@$( \
+            gcloud artifacts docker tags list --location=${{ env.REGION }} --repository=${{ env.REPOSITORY_ID }} \
+            --filter="tag:${GITHUB_SHA}" --format="value(version)" | head -n1 \
+          )" --format="value(image_summary.digest)" 2>/dev/null || true)
+          echo "IMAGE_DIGEST=${DIGEST:-}" >> "$GITHUB_ENV"
 
       - name: Create Cloud Deploy Release
         run: |-
@@ -68,5 +83,40 @@ jobs:
           gcloud deploy releases create ${RELEASE_NAME} \
             --delivery-pipeline=${{ env.PIPELINE_NAME }} \
             --region=${{ env.REGION }} \
-            --images=${{ env.IMAGE_NAME }}=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --images=${{ env.IMAGE_NAME }}=${{ env.IMAGE_URI }}@${{ env.IMAGE_DIGEST }} \
             --source=.
+            
+      - name: Notify n8n via webhook
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_USER: ${{ secrets.N8N_USER }}
+          N8N_PASS: ${{ secrets.N8N_PASS }}
+        run: |
+          set -euo pipefail
+          : "${IMAGE_URI:?missing IMAGE_URI}"
+
+          payload=$(jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg sha "${GITHUB_SHA}" \
+            --arg ref "${{ github.ref }}" \
+            --arg image "${IMAGE_URI}:${GITHUB_SHA}" \
+            --arg image_latest "${IMAGE_URI}:latest" \
+            --arg image_digest "${IMAGE_DIGEST:-}" \
+            '{
+              repo: $repo,
+              commit: $sha,
+              ref: $ref,
+              image: $image,
+              image_latest: $image_latest,
+              image_digest: $image_digest,
+              deployed_at: (now | todate)
+            }')
+
+          echo "$payload" | jq .
+
+          curl --fail --show-error --silent \
+               --retry 5 --retry-all-errors --retry-delay 2 \
+               -u "${N8N_USER}:${N8N_PASS}" \
+               -H "Content-Type: application/json" \
+               -d "${payload}" \
+               "${N8N_WEBHOOK_URL}"
