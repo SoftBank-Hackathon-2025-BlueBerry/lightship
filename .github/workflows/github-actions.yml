@@ -28,14 +28,42 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Verify impersonation (debug)
+        run: |
+          gcloud auth list
+          gcloud config list
+      
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
       - name: Build and Push Docker Image
-        run: |-
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} app/
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+
+          docker build -t "${IMAGE_URI}:${GITHUB_SHA}" app/
+          docker push "${IMAGE_URI}:${GITHUB_SHA}"
+
+          # 선택: latest도 함께 갱신
+          docker tag "${IMAGE_URI}:${GITHUB_SHA}" "${IMAGE_URI}:latest"
+          docker push "${IMAGE_URI}:latest"
+
+          # 선택: digest 추출(추적용)
+          DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}@$( \
+            gcloud artifacts docker tags list --location=${{ env.REGION }} --repository=${{ env.REPOSITORY_ID }} \
+            --filter="tag:${GITHUB_SHA}" --format="value(version)" | head -n1 \
+          )" --format="value(image_summary.digest)" 2>/dev/null || true)
+          echo "IMAGE_DIGEST=${DIGEST:-}" >> "$GITHUB_ENV"
+
+      # - name: Build and Push Docker Image
+      #   run: |-
+      #     docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} app/
+      #     docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       # - name: Create Cloud Deploy Release
       #   run: |-
@@ -47,28 +75,63 @@ jobs:
       #       --images=${{ env.IMAGE_NAME }}=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
       #       --source=.
 
-      # 3) n8n 웹훅 호출 (기본 인증 + JSON 페이로드)
+      # # 3) n8n 웹훅 호출 (기본 인증 + JSON 페이로드)
+      # - name: Notify n8n via webhook
+      #   env:
+      #     N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}   # e.g. https://n8n-XXXX.us-central1.run.app/webhook/<YOUR-WEBHOOK-ID>
+      #     N8N_USER: ${{ secrets.N8N_USER }}                 # n8n BASIC AUTH 사용자 (N8N_BASIC_AUTH_ACTIVE=true일 때)
+      #     N8N_PASS: ${{ secrets.N8N_PASS }}                 # n8n BASIC AUTH 비밀번호
+      #   run: |
+      #     # 재시도(콜드스타트/일시 오류 대비)
+      #     payload=$(jq -n \
+      #       --arg repo "${{ github.repository }}" \
+      #       --arg sha "${{ github.sha }}" \
+      #       --arg ref "${{ github.ref }}" \
+      #       --arg image "${IMAGE_URI}:${GITHUB_SHA}" \
+      #       --arg image_latest "${IMAGE_URI}:latest" \
+      #       '{
+      #         repo: $repo,
+      #         commit: $sha,
+      #         ref: $ref,
+      #         image: $image,
+      #         image_latest: $image_latest,
+      #         deployed_at: (now | todate)
+      #       }')
+      #     echo "$payload" | jq .
+
+      #     curl --fail --show-error --silent \
+      #          --retry 5 --retry-all-errors --retry-delay 2 \
+      #          -u "${N8N_USER}:${N8N_PASS}" \
+      #          -H "Content-Type: application/json" \
+      #          -d "${payload}" \
+      #          "${N8N_WEBHOOK_URL}"
+
       - name: Notify n8n via webhook
         env:
-          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}   # e.g. https://n8n-XXXX.us-central1.run.app/webhook/<YOUR-WEBHOOK-ID>
-          N8N_USER: ${{ secrets.N8N_USER }}                 # n8n BASIC AUTH 사용자 (N8N_BASIC_AUTH_ACTIVE=true일 때)
-          N8N_PASS: ${{ secrets.N8N_PASS }}                 # n8n BASIC AUTH 비밀번호
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_USER: ${{ secrets.N8N_USER }}
+          N8N_PASS: ${{ secrets.N8N_PASS }}
         run: |
-          # 재시도(콜드스타트/일시 오류 대비)
+          set -euo pipefail
+          : "${IMAGE_URI:?missing IMAGE_URI}"
+
           payload=$(jq -n \
             --arg repo "${{ github.repository }}" \
-            --arg sha "${{ github.sha }}" \
+            --arg sha "${GITHUB_SHA}" \
             --arg ref "${{ github.ref }}" \
             --arg image "${IMAGE_URI}:${GITHUB_SHA}" \
             --arg image_latest "${IMAGE_URI}:latest" \
+            --arg image_digest "${IMAGE_DIGEST:-}" \
             '{
               repo: $repo,
               commit: $sha,
               ref: $ref,
               image: $image,
               image_latest: $image_latest,
+              image_digest: $image_digest,
               deployed_at: (now | todate)
             }')
+
           echo "$payload" | jq .
 
           curl --fail --show-error --silent \
