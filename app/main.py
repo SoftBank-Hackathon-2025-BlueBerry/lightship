@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
+
 @app.get("/", response_class=HTMLResponse)
 async def get_hello_world():
     html_content = """
@@ -23,6 +24,7 @@ async def get_hello_world():
     </html>
     """
     return HTMLResponse(content=html_content, status_code=200)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
