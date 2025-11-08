@@ -61,23 +61,18 @@ jobs:
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
           IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY_ID }}/${{ env.IMAGE_NAME }}"
           echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
-
+          
           docker build -t "${IMAGE_URI}:${GITHUB_SHA}" app/
           docker push "${IMAGE_URI}:${GITHUB_SHA}"
-
+          
           # 선택: latest도 함께 갱신
           docker tag "${IMAGE_URI}:${GITHUB_SHA}" "${IMAGE_URI}:latest"
           docker push "${IMAGE_URI}:latest"
-
-#          # 선택: digest 추출(추적용)
-          DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}@$( \
-          gcloud artifacts docker tags list --location=${{ env.REGION }} --repository=${{ env.REPOSITORY_ID }} \
-            --filter="tag:${GITHUB_SHA}" --format="value(version)" | head -n1 \
-          )" --format="value(image_summary.digest)" 2>/dev/null || true)
-          echo "IMAGE_DIGEST=${DIGEST:-}" >> "$GITHUB_ENV"
-#           DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}:${GITHUB_SHA}" \
-#           --format="value(image_summary.digest)" 2>/dev/null || echo "")
-#           echo "IMAGE_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
+          
+          # 선택: digest 추출(추적용)
+          DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}:${GITHUB_SHA}" \
+            --format="value(image_summary.digest)" 2>/dev/null || true)
+          echo "IMAGE_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
       - name: Create Cloud Deploy Release
         run: |-
           RELEASE_NAME="release-$(echo ${{ github.sha }} | cut -c1-8)"
