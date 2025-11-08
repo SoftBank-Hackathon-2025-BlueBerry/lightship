@@ -85,5 +85,4 @@ jobs:
               -d "${payload}" \
               "${N8N_WEBHOOK_URL}"
 
-
 # Dummy
