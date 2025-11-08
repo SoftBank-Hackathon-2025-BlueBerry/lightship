@@ -68,7 +68,7 @@ jobs:
           # 선택: latest도 함께 갱신
           docker tag "${IMAGE_URI}:${GITHUB_SHA}" "${IMAGE_URI}:latest"
           docker push "${IMAGE_URI}:latest"
-         
+
 #          # 선택: digest 추출(추적용)
           DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}@$( \
           gcloud artifacts docker tags list --location=${{ env.REGION }} --repository=${{ env.REPOSITORY_ID }} \
