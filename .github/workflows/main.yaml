@@ -1,0 +1,77 @@
+name: Build, Push, and Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  REPOSITORY_ID: ${{ vars.ARTIFACT_REPO_ID }}
+  PIPELINE_NAME: ${{ vars.CD_PIPELINE_NAME }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+
+  PYTHON_VERSION: 3.11
+  BLACK_VERSION: 24.8.0
+  RUFF_VERSION: 0.7.2
+
+jobs:
+  black_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install black==${{ env.BLACK_VERSION }}
+      - run: black --check app/
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff==${{ env.RUFF_VERSION }}
+      - run: ruff check app/
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [black_check, ruff]
+    permissions:
+      contents: "read"
+      id-token: "write"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Notify n8n via webhook
+        # main만 n8n 연결
+        if: github.ref == 'refs/heads/main'
+        env:
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_USER: ${{ secrets.N8N_USER }}
+          N8N_PASS: ${{ secrets.N8N_PASS }}
+        run: |
+          set -euo pipefail
+
+          payload=$(jq -n --arg msg "배포 완료" '{message: $msg, sent_at: (now | todate)}')
+
+          echo "$payload" | jq .
+
+          curl --fail --show-error --silent \
+              --retry 5 --retry-all-errors --retry-delay 2 \
+              -u "${N8N_USER}:${N8N_PASS}" \
+              -H "Content-Type: application/json" \
+              -d "${payload}" \
+              "${N8N_WEBHOOK_URL}"
