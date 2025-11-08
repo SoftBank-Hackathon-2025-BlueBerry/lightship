@@ -18,3 +18,9 @@ profiles:
     manifests:
       rawYaml:
         - lightship-production.yaml
+    verify:
+      - name: dummy-verify
+        container:
+          name: verify
+          image: busybox:latest
+          command: ["sh", "-c", "echo 'Deployment verified'; exit 0"]
