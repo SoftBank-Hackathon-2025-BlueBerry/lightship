@@ -9,6 +9,15 @@ manifests:
   rawYaml: []
 deploy:
   cloudrun: {}
+
+# 🔹 Cloud Deploy가 verify: true일 때 오류 방지를 위한 dummy verify
+verify:
+  - name: noop-verify
+    container:
+      name: verify
+      image: busybox:latest
+      command: ["sh", "-c", "echo 'Skipping verify stage (manual deploy)'; exit 0"]
+
 profiles:
   - name: staging
     manifests:
@@ -18,9 +27,3 @@ profiles:
     manifests:
       rawYaml:
         - lightship-production.yaml
-    verify:
-      - name: dummy-verify
-        container:
-          name: verify
-          image: busybox:latest
-          command: ["sh", "-c", "echo 'Deployment verified'; exit 0"]
