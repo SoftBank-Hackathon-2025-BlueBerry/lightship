@@ -55,9 +55,19 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Get list of releases
+        run: |
+          RELEASE_NAMES=$(gcloud deploy releases list \
+            --project=infra-477010 \
+            --region=asia-northeast3 \
+            --delivery-pipeline=blueberry-pipeline \
+            --format="value(name)")
+
+          JSON_PAYLOAD=$(echo "$RELEASE_NAMES" | jq -R -s -c 'split("\n")[:-1]')
+
+          echo "json_payload=${JSON_PAYLOAD}" >> $GITHUB_OUTPUT
+
       - name: Notify n8n via webhook
-        # main만 n8n 연결
-        if: github.ref == 'refs/heads/main'
         env:
           N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
           N8N_USER: ${{ secrets.N8N_USER }}
@@ -65,7 +75,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          payload=$(jq -n --arg msg "배포 완료" '{message: $msg, sent_at: (now | todate)}')
+          payload=$(jq -n --arg msg "배포 완료" '{
+            message: $msg,
+            sent_at: (now | todate),
+            releases: ${JSON_PAYLOAD}
+          }')
 
           echo "$payload" | jq .
 
