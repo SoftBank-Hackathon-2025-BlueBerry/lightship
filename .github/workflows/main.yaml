@@ -71,11 +71,9 @@ jobs:
             | grep -oE 'release-[^/]+$' \
             | jq -R . | jq -s .)
 
-          JSON_PAYLOAD=$(echo "$RELEASE_NAMES" | jq -R -s -c 'split("\n")|map(select(length>0))')
-
           payload=$(jq -n \
             --arg msg "배포 완료" \
-            --argjson releases "${JSON_PAYLOAD}" \
+            --argjson releases "${RELEASE_NAMES}" \
             '{message: $msg, sent_at: (now|todate), releases: $releases}')
 
           echo "$payload" | jq .
