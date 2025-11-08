@@ -3,7 +3,6 @@ name: Build, Push, and Deploy to Cloud Run
 on:
   push:
     branches:
-      - main
       - develop
 
 env:
@@ -57,7 +56,6 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and Push Docker Image
-        # main/develop 둘다 빌드
         run: |
           set -euo pipefail
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
@@ -72,8 +70,6 @@ jobs:
           docker push "${IMAGE_URI}:latest"
 
       - name: Create Cloud Deploy Release
-        # develop만 릴리스
-        if: github.ref == 'refs/heads/develop'
         run: |-
           RELEASE_NAME="release-$(echo ${{ github.sha }} | cut -c1-8)"
 
@@ -83,39 +79,3 @@ jobs:
             --images=${{ env.IMAGE_NAME }}=${{ env.IMAGE_URI }}@${{ env.IMAGE_DIGEST }} \
             --source=.
             
-      - name: Notify n8n via webhook
-        # main만 n8n 연결
-        if: github.ref == 'refs/heads/main'
-        env:
-          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
-          N8N_USER: ${{ secrets.N8N_USER }}
-          N8N_PASS: ${{ secrets.N8N_PASS }}
-        run: |
-          set -euo pipefail
-          : "${IMAGE_URI:?missing IMAGE_URI}"
-
-          payload=$(jq -n \
-            --arg repo "${{ github.repository }}" \
-            --arg sha "${GITHUB_SHA}" \
-            --arg ref "${{ github.ref }}" \
-            --arg image "${IMAGE_URI}:${GITHUB_SHA}" \
-            --arg image_latest "${IMAGE_URI}:latest" \
-            --arg image_digest "${IMAGE_DIGEST:-}" \
-            '{
-              repo: $repo,
-              commit: $sha,
-              ref: $ref,
-              image: $image,
-              image_latest: $image_latest,
-              image_digest: $image_digest,
-              deployed_at: (now | todate)
-            }')
-
-          echo "$payload" | jq .
-
-          curl --fail --show-error --silent \
-               --retry 5 --retry-all-errors --retry-delay 2 \
-               -u "${N8N_USER}:${N8N_PASS}" \
-               -H "Content-Type: application/json" \
-               -d "${payload}" \
-               "${N8N_WEBHOOK_URL}"
