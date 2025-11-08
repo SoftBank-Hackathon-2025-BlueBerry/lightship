@@ -67,7 +67,9 @@ jobs:
             --project=infra-477010 \
             --region=asia-northeast3 \
             --delivery-pipeline=blueberry-pipeline \
-            --format='value(name)')
+            --format='value(name)' \
+            | grep -oE 'release-[^/]+$' \
+            | jq -R . | jq -s .)
 
           JSON_PAYLOAD=$(echo "$RELEASE_NAMES" | jq -R -s -c 'split("\n")|map(select(length>0))')
 
