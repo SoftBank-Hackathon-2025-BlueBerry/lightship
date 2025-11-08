@@ -71,7 +71,7 @@ jobs:
          
 #          # 선택: digest 추출(추적용)
           DIGEST=$(gcloud artifacts docker images describe "${IMAGE_URI}@$( \
-            gcloud artifacts docker tags list --location=${{ env.REGION }} --repository=${{ env.REPOSITORY_ID }} \
+          gcloud artifacts docker tags list --location=${{ env.REGION }} --repository=${{ env.REPOSITORY_ID }} \
             --filter="tag:${GITHUB_SHA}" --format="value(version)" | head -n1 \
           )" --format="value(image_summary.digest)" 2>/dev/null || true)
           echo "IMAGE_DIGEST=${DIGEST:-}" >> "$GITHUB_ENV"
