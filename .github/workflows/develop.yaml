@@ -78,4 +78,124 @@ jobs:
             --region=${{ env.REGION }} \
             --images=${{ env.IMAGE_NAME }}=${{ env.IMAGE_URI }}@${{ env.IMAGE_DIGEST }} \
             --source=.
-            
+
+      - name: Notify Slack - Staging Deployment
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+          COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an")
+          COMMIT_SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-8)
+
+          # GitHub API로 job 실행 시간 가져오기
+          JOBS_JSON=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs")
+
+          # 각 job의 실행 시간 계산 (초 단위)
+          BLACK_TIME=$(echo "$JOBS_JSON" | jq -r '.jobs[] | select(.name=="black_check") |
+            (((.completed_at // now | fromdateiso8601) - (.started_at | fromdateiso8601)) | floor)')
+          RUFF_TIME=$(echo "$JOBS_JSON" | jq -r '.jobs[] | select(.name=="ruff") |
+            (((.completed_at // now | fromdateiso8601) - (.started_at | fromdateiso8601)) | floor)')
+          DEPLOY_TIME=$(echo "$JOBS_JSON" | jq -r '.jobs[] | select(.name=="deploy") |
+            (((.completed_at // now | fromdateiso8601) - (.started_at | fromdateiso8601)) | floor)')
+
+          # 시간 포맷팅 (초 -> 분:초 또는 초)
+          format_time() {
+            local seconds=$1
+            if [ "$seconds" -ge 60 ]; then
+              echo "$((seconds / 60))분 $((seconds % 60))초"
+            else
+              echo "${seconds}초"
+            fi
+          }
+
+          BLACK_DURATION=$(format_time ${BLACK_TIME:-0})
+          RUFF_DURATION=$(format_time ${RUFF_TIME:-0})
+          DEPLOY_DURATION=$(format_time ${DEPLOY_TIME:-0})
+
+          MESSAGE=$(cat <<EOF
+          {
+            "channel": "${SLACK_CHANNEL_ID}",
+            "text": "Staging 배포 완료",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "Staging 배포 완료"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Repository:*\n${{ github.repository }}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Branch:*\ndevelop"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Commit:*\n${COMMIT_SHORT_SHA}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Author:*\n${COMMIT_AUTHOR}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Message:*\n${COMMIT_MSG}"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Docker Image:*\n\`${IMAGE_URI}:${COMMIT_SHORT_SHA}\`"
+                }
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Jobs:*\n✅ black_check: 성공 (${BLACK_DURATION})\n✅ ruff: 성공 (${RUFF_DURATION})\n✅ deploy: 성공 (${DEPLOY_DURATION})"
+                }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "View Workflow"
+                    },
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  },
+                  {
+                    "type": "button",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "View Commit"
+                    },
+                    "url": "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          )
+
+          curl -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${MESSAGE}"
