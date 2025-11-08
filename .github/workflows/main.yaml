@@ -63,9 +63,8 @@ jobs:
             --delivery-pipeline=blueberry-pipeline \
             --format="value(name)")
 
-          JSON_PAYLOAD=$(echo "$RELEASE_NAMES" | jq -R -s -c 'split("\n")[:-1]')
-
-          echo "json_payload=${JSON_PAYLOAD}" >> $GITHUB_OUTPUT
+          JSON_PAYLOAD=$(echo "$RELEASE_NAMES" | jq -R -s -c 'split("\n")|map(select(length>0))')
+          echo "json_payload=${JSON_PAYLOAD}" >> "$GITHUB_OUTPUT"
 
       - name: Notify n8n via webhook
         env:
@@ -74,12 +73,12 @@ jobs:
           N8N_PASS: ${{ secrets.N8N_PASS }}
         run: |
           set -euo pipefail
+          JSON_PAYLOAD='${{ steps.get_releases.outputs.json_payload }}'
 
-          payload=$(jq -n --arg msg "배포 완료" '{
-            message: $msg,
-            sent_at: (now | todate),
-            releases: ${JSON_PAYLOAD}
-          }')
+          payload=$(jq -n \
+            --arg msg "배포 완료" \
+            --argjson releases "${JSON_PAYLOAD}" \
+            '{message: $msg, sent_at: (now|todate), releases: $releases}')
 
           echo "$payload" | jq .
 
