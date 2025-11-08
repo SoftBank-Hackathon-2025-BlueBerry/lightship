@@ -76,7 +76,7 @@ jobs:
           gcloud deploy releases create ${RELEASE_NAME} \
             --delivery-pipeline=${{ env.PIPELINE_NAME }} \
             --region=${{ env.REGION }} \
-            --images=${{ env.IMAGE_NAME }}=${{ env.IMAGE_URI }}:${GITHUB_SHA} \
+            --images=${{ env.IMAGE_NAME }}=${{ env.IMAGE_URI }}@${{ env.IMAGE_DIGEST }} \
             --source=.
 
   notify:
