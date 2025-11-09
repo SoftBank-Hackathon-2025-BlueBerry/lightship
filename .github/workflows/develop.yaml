@@ -234,4 +234,3 @@ jobs:
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${MESSAGE}"
-
