@@ -235,4 +235,3 @@ jobs:
             -H "Content-Type: application/json" \
             -d "${MESSAGE}"
 
-# Dummy
