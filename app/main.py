@@ -12,14 +12,14 @@ async def get_hello_world():
     html_content = """
     <html>
         <head>
-            <title>FastAPI Hello World</title>
+            <title>FastAPI Hello SOFTBANK</title>
             <style>
                 body { font-family: sans-serif; display: grid; place-items: center; min-height: 90vh; background-color: #f4f4f4; }
                 h1 { color: #333; }
             </style>
         </head>
         <body>
-            <h1>Hello, World!</h1>
+            <h1>Hello, SOFTBANK!</h1>
         </body>
     </html>
     """
