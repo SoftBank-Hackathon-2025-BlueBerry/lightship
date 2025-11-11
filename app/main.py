@@ -12,7 +12,7 @@ async def get_hello_world():
     html_content = """
     <html>
         <head>
-            <title>FastAPI Hello World</title>
+            <title>Hello World</title>
             <style>
                 body { font-family: sans-serif; display: grid; place-items: center; min-height: 90vh; background-color: #f4f4f4; }
                 h1 { color: #333; }
