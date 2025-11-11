@@ -99,7 +99,7 @@ jobs:
 
       - name: Notify Slack - Staging Deployment
         env:
-          N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+          N8N_WEBHOOK_URL: ${{ secrets.N8N_NOTIFY_WEBHOOK }}
 
           BLACK_STATUS: ${{ needs.black_check.result }}
           RUFF_STATUS: ${{ needs.ruff.result }}
